@@ -23,10 +23,10 @@ import matplotlib
 #matplotlib.use('TkAgg')
 #import matplotlib.pyplot as plt
 #import matplotlib.patches as patches
-from skimage import io
+#from skimage import io
 
-import glob
-import time
+#import glob
+#import time
 import argparse
 from filterpy.kalman import KalmanFilter
 
@@ -96,7 +96,7 @@ class KalmanBoxTracker(object):
   This class represents the internal state of individual tracked objects observed as bbox.
   """
   count = 0
-  def __init__(self,bbox, class_id):
+  def __init__(self,bbox, custom_data):
     """
     Initialises a tracker using initial bounding box.
     """
@@ -119,9 +119,9 @@ class KalmanBoxTracker(object):
     self.hits = 0
     self.hit_streak = 0
     self.age = 0
-    self.class_id = class_id
+    self.custom_data = custom_data
 
-  def update(self,bbox):
+  def update(self,bbox, custom_data):
     """
     Updates the state vector with observed bbox.
     """
@@ -130,6 +130,7 @@ class KalmanBoxTracker(object):
     self.hits += 1
     self.hit_streak += 1
     self.kf.update(convert_bbox_to_z(bbox))
+    self.custom_data = custom_data
 
   def predict(self):
     """
@@ -208,7 +209,7 @@ class Sort(object):
     self.trackers = []
     self.frame_count = 0
 
-  def update(self, dets, class_ids):
+  def update(self, dets, custom_datas):
     """
     Params:
       dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -222,7 +223,7 @@ class Sort(object):
     trks = np.zeros((len(self.trackers), 5))
     to_del = []
     ret = []
-    ret_ids = []
+    ret_custom_datas = []
     for t, trk in enumerate(trks):
       pos = self.trackers[t].predict()[0]
       trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
@@ -235,25 +236,25 @@ class Sort(object):
 
     # update matched trackers with assigned detections
     for m in matched:
-      self.trackers[m[1]].update(dets[m[0], :])
+      self.trackers[m[1]].update(dets[m[0], :], custom_datas[m[0]])
 
     # create and initialise new trackers for unmatched detections
     for i in unmatched_dets:
-        trk = KalmanBoxTracker(dets[i,:], class_ids[i])
+        trk = KalmanBoxTracker(dets[i,:], custom_datas[i])
         self.trackers.append(trk)
     i = len(self.trackers)
     for trk in reversed(self.trackers):
         d = trk.get_state()[0]
         if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
           ret.append(np.concatenate((d,[trk.id+1])).reshape(1,-1)) # +1 as MOT benchmark requires positive
-          ret_ids.append(trk.class_id)
+          ret_custom_datas.append(trk.custom_data)
         i -= 1
         # remove dead tracklet
         if(trk.time_since_update > self.max_age):
           self.trackers.pop(i)
     if(len(ret)>0):
-      return np.concatenate(ret), ret_ids
-    return np.empty((0,5)), ret_ids
+      return np.concatenate(ret), ret_custom_datas
+    return np.empty((0,5)), ret_custom_datas
 
 def parse_args():
     """Parse input arguments."""
